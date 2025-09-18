@@ -36,39 +36,42 @@ pipeline {
 
     stage('Deploy to server') {
       steps {
-        // Use bash because /bin/sh (dash) does not support "set -o pipefail"
-        sh(script: '''#!/usr/bin/env bash
-set -euo pipefail
+        // POSIX /bin/sh compatible script (works on Ubuntu dash)
+        sh '''
+          set -eu
 
-# 1) Find the built JAR
-JAR="$(ls -1 target/*.jar | head -n1)"
-echo "Built JAR: $JAR"
-[[ -f "$JAR" ]] || { echo "No jar built in target/"; exit 1; }
+          # 1) Find the built JAR
+          JAR="$(ls -1 target/*.jar | head -n1)"
+          echo "Built JAR: $JAR"
+          if [ ! -f "$JAR" ]; then
+            echo "No jar built in target/" >&2
+            exit 1
+          fi
 
-# 2) Ensure deploy dir exists (owned by jenkins)
-sudo -n install -d -o jenkins -g jenkins -m 0755 "${DEPLOY_DIR}"
+          # 2) Ensure deploy dir exists (owned by jenkins)
+          sudo -n install -d -o jenkins -g jenkins -m 0755 "${DEPLOY_DIR}"
 
-# 3) Copy JAR atomically with sane perms (0644) as app.jar
-install -m 0644 "$JAR" "${DEPLOY_DIR}/app.jar"
-ls -l "${DEPLOY_DIR}/app.jar"
+          # 3) Copy JAR atomically with sane perms (0644) as app.jar
+          install -m 0644 "$JAR" "${DEPLOY_DIR}/app.jar"
+          ls -l "${DEPLOY_DIR}/app.jar"
 
-# 4) Reload units and restart ONLY this service (NOPASSWD allowed)
-sudo -n systemctl daemon-reload
-sudo -n systemctl restart "${SERVICE}"
+          # 4) Reload units and restart ONLY this service (NOPASSWD allowed)
+          sudo -n systemctl daemon-reload
+          sudo -n systemctl restart "${SERVICE}"
 
-# 5) Simple health wait (200/302/403 are fine for HEAD)
-echo "Waiting for app on http://localhost:8082 ..."
-for i in {1..30}; do
-  if curl -fsI --max-time 2 http://localhost:8082 >/dev/null 2>&1; then
-    echo "App is responding on port 8082."
-    exit 0
-  fi
-  sleep 1
-done
-
-echo "Service did not respond on 8082 in time." >&2
-exit 1
-''', shell: '/bin/bash')
+          # 5) Simple health wait (HTTP 200/302/403 treated as OK for HEAD)
+          echo "Waiting for app on http://localhost:8082 ..."
+          i=0
+          until curl -fsI --max-time 2 http://localhost:8082 >/dev/null 2>&1; do
+            i=$((i+1))
+            if [ "$i" -ge 30 ]; then
+              echo "Service did not respond on 8082 in time." >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "App is responding on port 8082."
+        '''
       }
     }
   }
