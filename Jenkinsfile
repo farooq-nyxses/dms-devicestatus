@@ -13,9 +13,9 @@ pipeline {
   environment {
     REPO_URL   = 'https://github.com/farooq-nyxses/dms-devicestatus.git'
     BRANCH     = 'dev-branch'
-    CRED_ID    = 'github-farooq'              // Jenkins Credentials ID (Username + PAT)
-    DEPLOY_DIR = '/opt/dms-devicestatus'      // Target dir on Ubuntu server
-    SERVICE    = 'devicestatus'               // systemd service name
+    CRED_ID    = 'github-farooq'
+    DEPLOY_DIR = '/opt/dms-devicestatus'
+    SERVICE    = 'devicestatus'
   }
 
   stages {
@@ -30,17 +30,18 @@ pipeline {
 
     stage('Build (skip tests)') {
       steps {
-        sh 'mvn -B -DskipTests clean package'
+        // Repackage to create a runnable Spring Boot fat jar
+        sh 'mvn -B -DskipTests clean package spring-boot:repackage'
       }
     }
 
     stage('Deploy to server') {
       steps {
-        // POSIX /bin/sh compatible script (Ubuntu dash)
+        // POSIX /bin/sh script
         sh '''
           set -eu
 
-          # 1) Find the built JAR
+          # 1) Find the built JAR (after repackage it's still the same artifact name)
           JAR="$(ls -1 target/*.jar | head -n1)"
           echo "Built JAR: $JAR"
           if [ ! -f "$JAR" ]; then
@@ -48,18 +49,19 @@ pipeline {
             exit 1
           fi
 
-          # 2) Ensure deploy dir exists (no sudo, jenkins must own it)
+          # 2) Ensure deploy dir exists (jenkins owns it; no sudo needed)
           mkdir -p "${DEPLOY_DIR}"
 
-          # 3) Copy JAR atomically with sane perms (0644) as app.jar (no sudo)
+          # 3) Copy JAR as app.jar
           install -m 0644 "$JAR" "${DEPLOY_DIR}/app.jar"
-          ls -l "${DEPLOY_DIR}/app.jar"
+          echo "app.jar size:"
+          ls -lh "${DEPLOY_DIR}/app.jar"
 
-          # 4) Reload units and restart ONLY this service (sudo allowed via sudoers)
+          # 4) Reload unit files & restart the service (sudo allowed via sudoers)
           sudo -n systemctl daemon-reload
           sudo -n systemctl restart "${SERVICE}"
 
-          # 5) Simple health wait (HTTP 200/302/403 treated as OK for HEAD)
+          # 5) Health check (wait up to ~30s)
           echo "Waiting for app on http://localhost:8082 ..."
           i=0
           until curl -fsI --max-time 2 http://localhost:8082 >/dev/null 2>&1; do
