@@ -36,27 +36,38 @@ pipeline {
 
     stage('Deploy to server') {
       steps {
-        sh '''
-          set -e
-          # Pick the built jar (name can vary); copy as app.jar
-          JAR=$(ls -1 target/*.jar | head -n1)
-          [ -f "$JAR" ] || { echo "No jar built in target/"; exit 1; }
-
-          # Ensure deploy dir exists and is owned by jenkins
-          sudo mkdir -p ${DEPLOY_DIR}
-          sudo chown -R jenkins:jenkins ${DEPLOY_DIR}
-
-          # Copy jar atomically
-          cp "$JAR" ${DEPLOY_DIR}/app.jar
-
-          # Reload systemd in case unit changed and restart the service
-          sudo systemctl daemon-reload
-          sudo systemctl restart ${SERVICE}
-
-          # Quick health check (HTTP 200/403 are fine for HEAD)
-          sleep 2
-          curl -I --max-time 5 http://localhost:8082 || true
-        '''
+            sh '''
+	      set -euo pipefail
+	
+	      # 1) Find the built JAR
+	      JAR="$(ls -1 target/*.jar | head -n1)"
+	      echo "Built JAR: $JAR"
+	      [ -f "$JAR" ] || { echo "No jar built in target/"; exit 1; }
+	
+	      # 2) Ensure deploy dir exists (owned by jenkins)
+	      sudo -n install -d -o jenkins -g jenkins -m 0755 ${DEPLOY_DIR}
+	
+	      # 3) Copy JAR atomically with sane perms (0644) as app.jar
+	      install -m 0644 "$JAR" ${DEPLOY_DIR}/app.jar
+	      ls -l ${DEPLOY_DIR}/app.jar
+	
+	      # 4) Reload units and restart ONLY this service (NOPASSWD allowed)
+	      sudo -n systemctl daemon-reload
+	      sudo -n systemctl restart ${SERVICE}
+	
+	      # 5) Simple health wait (HTTP 200/302/403 all OK for HEAD)
+	      echo "Waiting for app on http://localhost:8082 ..."
+	      for i in $(seq 1 30); do
+	        if curl -fsI --max-time 2 http://localhost:8082 >/dev/null 2>&1; then
+	          echo "App is responding on port 8082."
+	          exit 0
+	        fi
+	        sleep 1
+	      done
+	
+	      echo "Service did not respond on 8082 in time." >&2
+	      exit 1
+    	      '''
       }
     }
   }
