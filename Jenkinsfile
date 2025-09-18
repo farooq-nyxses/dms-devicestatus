@@ -13,9 +13,10 @@ pipeline {
   environment {
     REPO_URL   = 'https://github.com/farooq-nyxses/dms-devicestatus.git'
     BRANCH     = 'dev-branch'
-    CRED_ID    = 'github-farooq'
-    DEPLOY_DIR = '/opt/dms-devicestatus'
-    SERVICE    = 'devicestatus'
+    CRED_ID    = 'github-farooq'              // Jenkins Credentials ID (Username + PAT)
+    DEPLOY_DIR = '/opt/dms-devicestatus'      // Target dir on Ubuntu server
+    SERVICE    = 'devicestatus'               // systemd service name
+    HEALTH_URL = '/devicestatuses'            // <-- change if you prefer another endpoint
   }
 
   stages {
@@ -30,18 +31,18 @@ pipeline {
 
     stage('Build (skip tests)') {
       steps {
-        // Repackage to create a runnable Spring Boot fat jar
+        // Build runnable Spring Boot JAR
         sh 'mvn -B -DskipTests clean package spring-boot:repackage'
       }
     }
 
     stage('Deploy to server') {
       steps {
-        // POSIX /bin/sh script
+        // POSIX /bin/sh compatible
         sh '''
           set -eu
 
-          # 1) Find the built JAR (after repackage it's still the same artifact name)
+          # 1) Find the built JAR
           JAR="$(ls -1 target/*.jar | head -n1)"
           echo "Built JAR: $JAR"
           if [ ! -f "$JAR" ]; then
@@ -49,7 +50,7 @@ pipeline {
             exit 1
           fi
 
-          # 2) Ensure deploy dir exists (jenkins owns it; no sudo needed)
+          # 2) Ensure deploy dir exists (jenkins owns it; no sudo)
           mkdir -p "${DEPLOY_DIR}"
 
           # 3) Copy JAR as app.jar
@@ -61,18 +62,22 @@ pipeline {
           sudo -n systemctl daemon-reload
           sudo -n systemctl restart "${SERVICE}"
 
-          # 5) Health check (wait up to ~30s)
-          echo "Waiting for app on http://localhost:8082 ..."
+          # 5) Health check: treat 200/204/301/302/404 as "service up"
+          echo "Waiting for app on http://localhost:8082${HEALTH_URL} ..."
           i=0
-          until curl -fsI --max-time 2 http://localhost:8082 >/dev/null 2>&1; do
+          until : ; do
+            CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://localhost:8082${HEALTH_URL}")" || CODE=000
+            echo "Health HTTP status: $CODE"
+            case "$CODE" in
+              200|204|301|302|404) echo "Service is up (HTTP $CODE)."; break ;;
+            esac
             i=$((i+1))
             if [ "$i" -ge 30 ]; then
-              echo "Service did not respond on 8082 in time." >&2
+              echo "Service did not respond successfully in time. Last code: $CODE" >&2
               exit 1
             fi
             sleep 1
           done
-          echo "App is responding on port 8082."
         '''
       }
     }
