@@ -36,7 +36,7 @@ pipeline {
 
     stage('Deploy to server') {
       steps {
-        // POSIX /bin/sh compatible script (works on Ubuntu dash)
+        // POSIX /bin/sh compatible script (Ubuntu dash)
         sh '''
           set -eu
 
@@ -48,14 +48,14 @@ pipeline {
             exit 1
           fi
 
-          # 2) Ensure deploy dir exists (owned by jenkins)
-          sudo -n install -d -o jenkins -g jenkins -m 0755 "${DEPLOY_DIR}"
+          # 2) Ensure deploy dir exists (no sudo, jenkins must own it)
+          mkdir -p "${DEPLOY_DIR}"
 
-          # 3) Copy JAR atomically with sane perms (0644) as app.jar
+          # 3) Copy JAR atomically with sane perms (0644) as app.jar (no sudo)
           install -m 0644 "$JAR" "${DEPLOY_DIR}/app.jar"
           ls -l "${DEPLOY_DIR}/app.jar"
 
-          # 4) Reload units and restart ONLY this service (NOPASSWD allowed)
+          # 4) Reload units and restart ONLY this service (sudo allowed via sudoers)
           sudo -n systemctl daemon-reload
           sudo -n systemctl restart "${SERVICE}"
 
