@@ -2,7 +2,7 @@ package com.example.devicestatus.model;
 
 import jakarta.persistence.*;
 
-// Added comment
+// Added comment to demo automatic builds
 @Entity
 @Table(name = "devicestatuses")
 public class DeviceStatus {
