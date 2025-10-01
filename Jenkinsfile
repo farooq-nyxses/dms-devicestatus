@@ -4,6 +4,7 @@ pipeline {
   options {
     timestamps()
     skipDefaultCheckout(true)
+    buildDiscarder(logRotator(numToKeepStr: '10'))
   }
 
   tools {
@@ -11,12 +12,27 @@ pipeline {
   }
 
   environment {
-    REPO_URL   = 'https://github.com/farooq-nyxses/dms-devicestatus.git'
-    BRANCH     = 'dev-branch'
-    CRED_ID    = 'github-farooq'              // Jenkins Credentials ID (Username + PAT)
-    DEPLOY_DIR = '/opt/dms-devicestatus'      // Target dir on Ubuntu server
-    SERVICE    = 'devicestatus'               // systemd service name
-    HEALTH_URL = '/devicestatuses'            // <-- change if you prefer another endpoint
+    // Git Configuration
+    REPO_URL   = 'https://github.com/YOUR_GITHUB_USERNAME/dms-devicestatus.git'
+    BRANCH     = 'main'
+    CRED_ID    = 'github-credentials'
+    
+    // AWS Configuration
+    AWS_REGION = 'ap-south-1'
+    AWS_ACCOUNT_ID = '128121110035'
+    ECR_REPOSITORY = 'devicestatus-app'
+    ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+    EKS_CLUSTER_NAME = 'devicestatus-cluster'
+    
+    // Application Configuration
+    APP_NAME = 'devicestatus-app'
+    IMAGE_TAG = "${BUILD_NUMBER}"
+    KUBE_NAMESPACE = 'devicestatus'
+    
+    // Database Configuration
+    DB_URL = 'jdbc:postgresql://devicestatus-db.cb8cgs84gdsk.ap-south-1.rds.amazonaws.com:5432/devicestatus'
+    DB_USERNAME = 'devicestatus'
+    DB_PASSWORD = credentials('db-password')
   }
 
   stages {
@@ -29,63 +45,117 @@ pipeline {
       }
     }
 
-    stage('Build (skip tests)') {
+    stage('Build & Test') {
       steps {
-        // Build runnable Spring Boot JAR
-        sh 'mvn -B -DskipTests clean package spring-boot:repackage'
+        sh 'mvn clean compile test'
+      }
+      post {
+        always {
+          publishTestResults testResultsPattern: 'target/surefire-reports/*.xml'
+          publishCoverage adapters: [jacocoAdapter('target/site/jacoco/jacoco.xml')], sourceFileResolver: sourceFiles('STORE_LAST_BUILD')
+        }
       }
     }
 
-    stage('Deploy to server') {
+    stage('Package') {
       steps {
-        // POSIX /bin/sh compatible
-        sh '''
-          set -eu
+        sh 'mvn package -DskipTests'
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+        }
+      }
+    }
 
-          # 1) Find the built JAR
-          JAR="$(ls -1 target/*.jar | head -n1)"
-          echo "Built JAR: $JAR"
-          if [ ! -f "$JAR" ]; then
-            echo "No jar built in target/" >&2
-            exit 1
-          fi
+    stage('Docker Build') {
+      steps {
+        script {
+          // Build Docker image
+          sh "docker build -t ${APP_NAME}:${IMAGE_TAG} ."
+          sh "docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest"
+        }
+      }
+    }
 
-          # 2) Ensure deploy dir exists (jenkins owns it; no sudo)
-          mkdir -p "${DEPLOY_DIR}"
+    stage('Docker Push to ECR') {
+      steps {
+        script {
+          // Login to ECR
+          sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
+          
+          // Tag image for ECR
+          sh "docker tag ${APP_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          sh "docker tag ${APP_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+          
+          // Push to ECR
+          sh "docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          sh "docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+        }
+      }
+    }
 
-          # 3) Copy JAR as app.jar
-          install -m 0644 "$JAR" "${DEPLOY_DIR}/app.jar"
-          echo "app.jar size:"
-          ls -lh "${DEPLOY_DIR}/app.jar"
+    stage('Configure kubectl') {
+      steps {
+        script {
+          // Configure kubectl to use EKS cluster
+          sh """
+            aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME}
+            kubectl config current-context
+          """
+        }
+      }
+    }
 
-          # 4) Reload unit files & restart the service (sudo allowed via sudoers)
-          sudo -n systemctl daemon-reload
-          sudo -n systemctl restart "${SERVICE}"
+    stage('Deploy to Kubernetes') {
+      steps {
+        script {
+          // Update Kubernetes deployment with new image
+          sh """
+            kubectl set image deployment/${APP_NAME} ${APP_NAME}=${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} -n ${KUBE_NAMESPACE}
+            kubectl rollout status deployment/${APP_NAME} -n ${KUBE_NAMESPACE} --timeout=300s
+          """
+        }
+      }
+    }
 
-          # 5) Health check: treat 200/204/301/302/404 as "service up"
-          echo "Waiting for app on http://localhost:8082${HEALTH_URL} ..."
-          i=0
-          until : ; do
-            CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://localhost:8082${HEALTH_URL}")" || CODE=000
-            echo "Health HTTP status: $CODE"
-            case "$CODE" in
-              200|204|301|302|404) echo "Service is up (HTTP $CODE)."; break ;;
-            esac
-            i=$((i+1))
-            if [ "$i" -ge 30 ]; then
-              echo "Service did not respond successfully in time. Last code: $CODE" >&2
-              exit 1
-            fi
-            sleep 1
-          done
-        '''
+    stage('Health Check') {
+      steps {
+        script {
+          // Get service endpoint
+          sh """
+            kubectl get service ${APP_NAME}-service -n ${KUBE_NAMESPACE} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+          """
+          
+          // Health check
+          sh """
+            sleep 30
+            kubectl get pods -n ${KUBE_NAMESPACE} -l app=${APP_NAME}
+            kubectl logs -n ${KUBE_NAMESPACE} -l app=${APP_NAME} --tail=50
+          """
+        }
       }
     }
   }
 
   post {
     always {
-      archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+      // Clean up Docker images
+      sh "docker rmi ${APP_NAME}:${IMAGE_TAG} || true"
+      sh "docker rmi ${APP_NAME}:latest || true"
+      
+      // Clean workspace
+      cleanWs()
+    }
+    
+    success {
+      echo 'Pipeline completed successfully!'
+      // Send notification (Slack, email, etc.)
+    }
+    
+    failure {
+      echo 'Pipeline failed!'
+      // Send failure notification
     }
   }
 }
