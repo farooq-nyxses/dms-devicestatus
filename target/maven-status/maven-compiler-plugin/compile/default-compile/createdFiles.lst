@@ -1,4 +1,0 @@
-com\example\devicestatus\DeviceStatusApplication.class
-com\example\devicestatus\web\DeviceStatusController.class
-com\example\devicestatus\repo\DeviceStatusRepository.class
-com\example\devicestatus\model\DeviceStatus.class
