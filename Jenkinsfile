@@ -24,6 +24,10 @@ pipeline {
     ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
     EKS_CLUSTER_NAME = 'devicestatus-cluster'
     
+    // AWS Credentials (using Jenkins credentials)
+    AWS_ACCESS_KEY_ID = credentials('aws-access-key')
+    AWS_SECRET_ACCESS_KEY = credentials('aws-secret-key')
+    
     // Application Configuration
     APP_NAME = 'devicestatus-app'
     IMAGE_TAG = "${BUILD_NUMBER}"
