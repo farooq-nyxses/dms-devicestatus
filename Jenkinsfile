@@ -13,9 +13,9 @@ pipeline {
 
   environment {
     // Git Configuration
-    REPO_URL   = 'https://github.com/YOUR_GITHUB_USERNAME/dms-devicestatus.git'
-    BRANCH     = 'main'
-    CRED_ID    = 'github-credentials'
+    REPO_URL   = 'https://github.com/farooq-nyxses/dms-devicestatus.git'
+    BRANCH     = 'dev-aws-branch'
+    CRED_ID    = 'github-farooq-nyxses'
     
     // AWS Configuration
     AWS_REGION = 'ap-south-1'
@@ -39,7 +39,7 @@ pipeline {
     stage('Checkout') {
       steps {
         checkout([$class: 'GitSCM',
-          branches: [[name: "*/${BRANCH}"]],
+          branches: [[name: "${BRANCH}"]],
           userRemoteConfigs: [[url: REPO_URL, credentialsId: CRED_ID]]
         ])
       }
@@ -47,7 +47,7 @@ pipeline {
 
     stage('Build & Test') {
       steps {
-        sh 'mvn clean compile test'
+        bat 'mvn clean compile test'
       }
       post {
         always {
@@ -59,7 +59,7 @@ pipeline {
 
     stage('Package') {
       steps {
-        sh 'mvn package -DskipTests'
+        bat 'mvn package -DskipTests'
       }
       post {
         always {
@@ -72,8 +72,8 @@ pipeline {
       steps {
         script {
           // Build Docker image
-          sh "docker build -t ${APP_NAME}:${IMAGE_TAG} ."
-          sh "docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest"
+          bat "docker build -t ${APP_NAME}:${IMAGE_TAG} ."
+          bat "docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest"
         }
       }
     }
@@ -82,15 +82,15 @@ pipeline {
       steps {
         script {
           // Login to ECR
-          sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
+          bat "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
           
           // Tag image for ECR
-          sh "docker tag ${APP_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          sh "docker tag ${APP_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+          bat "docker tag ${APP_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          bat "docker tag ${APP_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
           
           // Push to ECR
-          sh "docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          sh "docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+          bat "docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          bat "docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
         }
       }
     }
@@ -99,7 +99,7 @@ pipeline {
       steps {
         script {
           // Configure kubectl to use EKS cluster
-          sh """
+          bat """
             aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME}
             kubectl config current-context
           """
@@ -111,7 +111,7 @@ pipeline {
       steps {
         script {
           // Update Kubernetes deployment with new image
-          sh """
+          bat """
             kubectl set image deployment/${APP_NAME} ${APP_NAME}=${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} -n ${KUBE_NAMESPACE}
             kubectl rollout status deployment/${APP_NAME} -n ${KUBE_NAMESPACE} --timeout=300s
           """
@@ -123,13 +123,13 @@ pipeline {
       steps {
         script {
           // Get service endpoint
-          sh """
+          bat """
             kubectl get service ${APP_NAME}-service -n ${KUBE_NAMESPACE} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
           """
           
           // Health check
-          sh """
-            sleep 30
+          bat """
+            timeout 30
             kubectl get pods -n ${KUBE_NAMESPACE} -l app=${APP_NAME}
             kubectl logs -n ${KUBE_NAMESPACE} -l app=${APP_NAME} --tail=50
           """
@@ -141,8 +141,8 @@ pipeline {
   post {
     always {
       // Clean up Docker images
-      sh "docker rmi ${APP_NAME}:${IMAGE_TAG} || true"
-      sh "docker rmi ${APP_NAME}:latest || true"
+      bat "docker rmi ${APP_NAME}:${IMAGE_TAG} || echo 'Image not found'"
+      bat "docker rmi ${APP_NAME}:latest || echo 'Image not found'"
       
       // Clean workspace
       cleanWs()

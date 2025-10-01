@@ -127,3 +127,4 @@ echo 📁 EKS information saved to aws-resources.txt
 pause
 
 
+
