@@ -53,7 +53,7 @@ pipeline {
 
     stage('Package') {
       steps {
-        bat 'mvn package -DskipTests'
+        bat 'mvn clean package spring-boot:repackage -DskipTests'
       }
       post {
         always {
