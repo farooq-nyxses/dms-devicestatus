@@ -62,29 +62,20 @@ pipeline {
       }
     }
 
-    stage('Docker Build') {
+    stage('Docker Build - SKIPPED') {
       steps {
         script {
-          // Build Docker image
-          bat "docker build -t ${APP_NAME}:${IMAGE_TAG} ."
-          bat "docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest"
+          echo 'Docker Build stage skipped due to Docker Desktop issues'
+          echo 'To enable: Fix Docker Desktop and uncomment the Docker stages below'
         }
       }
     }
 
-    stage('Docker Push to ECR') {
+    stage('Docker Push to ECR - SKIPPED') {
       steps {
         script {
-          // Login to ECR
-          bat "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
-          
-          // Tag image for ECR
-          bat "docker tag ${APP_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          bat "docker tag ${APP_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
-          
-          // Push to ECR
-          bat "docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          bat "docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+          echo 'Docker Push stage skipped due to Docker Desktop issues'
+          echo 'To enable: Fix Docker Desktop and uncomment the Docker stages below'
         }
       }
     }
@@ -101,14 +92,11 @@ pipeline {
       }
     }
 
-    stage('Deploy to Kubernetes') {
+    stage('Deploy to Kubernetes - SKIPPED') {
       steps {
         script {
-          // Update Kubernetes deployment with new image
-          bat """
-            kubectl set image deployment/${APP_NAME} ${APP_NAME}=${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} -n ${KUBE_NAMESPACE}
-            kubectl rollout status deployment/${APP_NAME} -n ${KUBE_NAMESPACE} --timeout=300s
-          """
+          echo 'Kubernetes deployment skipped - no new Docker image to deploy'
+          echo 'Current deployment is still running with the previous image'
         }
       }
     }
@@ -123,7 +111,6 @@ pipeline {
           
           // Health check
           bat """
-            timeout 30
             kubectl get pods -n ${KUBE_NAMESPACE} -l app=${APP_NAME}
             kubectl logs -n ${KUBE_NAMESPACE} -l app=${APP_NAME} --tail=50
           """
@@ -140,6 +127,7 @@ pipeline {
     
     success {
       echo 'Pipeline completed successfully!'
+      echo 'Note: Docker stages were skipped due to Docker Desktop issues'
     }
     
     failure {
