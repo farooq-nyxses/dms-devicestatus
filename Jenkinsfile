@@ -49,12 +49,6 @@ pipeline {
       steps {
         bat 'mvn clean compile test'
       }
-      post {
-        always {
-          publishTestResults testResultsPattern: 'target/surefire-reports/*.xml'
-          publishCoverage adapters: [jacocoAdapter('target/site/jacoco/jacoco.xml')], sourceFileResolver: sourceFiles('STORE_LAST_BUILD')
-        }
-      }
     }
 
     stage('Package') {
@@ -140,22 +134,16 @@ pipeline {
 
   post {
     always {
-      // Clean up Docker images
-      bat "docker rmi ${APP_NAME}:${IMAGE_TAG} || echo 'Image not found'"
-      bat "docker rmi ${APP_NAME}:latest || echo 'Image not found'"
-      
       // Clean workspace
       cleanWs()
     }
     
     success {
       echo 'Pipeline completed successfully!'
-      // Send notification (Slack, email, etc.)
     }
     
     failure {
       echo 'Pipeline failed!'
-      // Send failure notification
     }
   }
 }
