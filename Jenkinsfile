@@ -122,7 +122,7 @@ pipeline {
         script {
           // Get service endpoint
           bat """
-            kubectl get service ${APP_NAME}-service -n ${KUBE_NAMESPACE} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+            kubectl get service devicestatus-service -n ${KUBE_NAMESPACE} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
           """
           
           // Health check
