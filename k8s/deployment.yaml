@@ -93,6 +93,46 @@ spec:
             configMapKeyRef:
               name: devicestatus-config
               key: LOGGING_PATTERN_CONSOLE
+        - name: INFO_APP_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: devicestatus-config
+              key: INFO_APP_NAME
+        - name: INFO_APP_DESCRIPTION
+          valueFrom:
+            configMapKeyRef:
+              name: devicestatus-config
+              key: INFO_APP_DESCRIPTION
+        - name: INFO_APP_VERSION
+          valueFrom:
+            configMapKeyRef:
+              name: devicestatus-config
+              key: INFO_APP_VERSION
+        - name: INFO_APP_ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: devicestatus-config
+              key: INFO_APP_ENVIRONMENT
+        - name: INFO_APP_DEPLOYMENT
+          valueFrom:
+            configMapKeyRef:
+              name: devicestatus-config
+              key: INFO_APP_DEPLOYMENT
+        - name: INFO_APP_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: devicestatus-config
+              key: INFO_APP_DATABASE
+        - name: INFO_APP_AUTHOR
+          valueFrom:
+            configMapKeyRef:
+              name: devicestatus-config
+              key: INFO_APP_AUTHOR
+        - name: INFO_APP_CONTACT_EMAIL
+          valueFrom:
+            configMapKeyRef:
+              name: devicestatus-config
+              key: INFO_APP_CONTACT_EMAIL
         resources:
           requests:
             memory: "256Mi"
